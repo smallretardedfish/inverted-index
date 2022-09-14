@@ -3,9 +3,11 @@ package main
 import (
 	"bufio"
 	"fmt"
+	utils "github.com/smallretardedfish/inverted-index/pkg"
 	"github.com/smallretardedfish/inverted-index/pkg/inverted_index"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -21,27 +23,54 @@ It is the most popular data structure used in document retrieval systems`
 	SecondText = "THIS IS computer science inverted index"
 )
 
+var stringSources = []inverted_index.StringSource{{
+	Name: "First",
+	Text: FirstText,
+}, {
+	Name: "Second",
+	Text: SecondText,
+}}
+
 func run() error {
-	sources := []inverted_index.StringSource{{
-		Name: "First",
-		Text: FirstText,
-	}, {
-		Name: "Second",
-		Text: SecondText,
-	}}
 
-	invInvex := inverted_index.NewMapInvertedIndex(inverted_index.StringSourceType)
-
-	if err := invInvex.Build(sources); err != nil {
+	dirEntries, err := os.ReadDir("data/")
+	if err != nil {
 		return err
 	}
 
+	var fileSources []string
+	for _, entry := range dirEntries {
+		fileSources = append(fileSources, filepath.Join("data", entry.Name()))
+	}
+
+	invIndex := inverted_index.NewMapInvertedIndex(inverted_index.FileSourceType)
+
+	var (
+		e error
+		n int
+	)
+
+	fmt.Printf("enter num of workers: ")
+	if _, err := fmt.Scanf("%d\n", &n); err != nil {
+		return err
+	}
+	t := utils.EstimateExecutionTime(func() {
+		if err := invIndex.Build(1, fileSources); err != nil {
+			e = err
+		}
+	})
+	if e != nil {
+		return e
+	}
+	log.Println(t)
+
 	scanner := bufio.NewScanner(os.Stdin)
 
+	fmt.Printf(">> ")
 	for scanner.Scan() {
 		word := scanner.Text()
-		res := invInvex.Search(word)
-		fmt.Printf("word: %s, sources: %s\n", word, strings.Join(res, ","))
+		res := invIndex.Search(word)
+		fmt.Printf("word: %s - sources: %s\n>> ", word, strings.Join(res, ","))
 	}
 
 	return nil
