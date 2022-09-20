@@ -20,24 +20,45 @@ type MapInvertedIndex struct {
 	dict   map[string]hash_set.HashSet[string]
 }
 
-func (ii *MapInvertedIndex) Build(workersCount int, sources any) error {
+type pair struct {
+	word     string
+	filename string
+}
 
+func (ii *MapInvertedIndex) Build(workersCount int, sources any) error {
 	switch ii.source {
 	case FileSourceType:
 		filenames := sources.([]string)
-		sourcesCh := make(chan int, len(filenames))
+		jobsCh := make(chan string, len(filenames))
 
-		go func() {
-			for i := range filenames {
-				sourcesCh <- i
+		//chans := make([]chan pair, 0, workersCount)
+		res := make(chan pair)
+		wg := sync.WaitGroup{}
+		wg.Add(workersCount)
+
+		go func() { // feeling jobs channel with filenames
+			for _, filename := range filenames {
+				jobsCh <- filename
 			}
-			close(sourcesCh)
+			close(jobsCh)
 		}()
 
-		for i := 0; i < workersCount; i++ {
-			go func() {
-				for idx := range sourcesCh {
-					f, err := os.Open(filenames[idx])
+		go func() {
+			for p := range res { // collecting the result to hashmap
+				if _, ok := ii.dict[p.word]; !ok {
+					ii.dict[p.word] = make(hash_set.HashSet[string])
+				}
+				ii.dict[p.word].Insert(p.filename)
+			}
+		}()
+
+		for i := 0; i < workersCount; i++ { // worker pool
+			//pairCh := make(chan pair)     // every worker writes in this channel
+			//chans = append(chans, pairCh) // TODO check alternatives of slice append here
+			go func(id int) {
+				defer wg.Done()
+				for filename := range jobsCh { // job is  filename of file to process
+					f, err := os.Open(filename)
 					if err != nil {
 						log.Println(err)
 						return
@@ -49,31 +70,28 @@ func (ii *MapInvertedIndex) Build(workersCount int, sources any) error {
 					for scanner.Scan() {
 						word := scanner.Text()
 
-						ii.mu.Lock()
-
-						_, ok := ii.dict[word]
-						if !ok {
-							ii.dict[word] = make(hash_set.HashSet[string])
+						res <- pair{
+							word:     word,
+							filename: f.Name(),
 						}
-						ii.dict[word].Insert(f.Name())
-
-						ii.mu.Unlock()
 					}
 				}
-			}()
+				//	log.Printf("worker %d done.\n", id+1)
+			}(i)
 		}
-	//
+		wg.Wait()
+		close(res)
+
+		//res := utils.MergeChannels(chans...)
+
 	case StringSourceType:
 		stringSources := sources.([]StringSource)
 		for _, src := range stringSources {
 			words := strings.Split(src.Text, " ")
-
 			for _, word := range words {
-				_, ok := ii.dict[word]
-				if !ok {
+				if _, ok := ii.dict[word]; !ok {
 					ii.dict[word] = make(hash_set.HashSet[string])
 				}
-
 				ii.dict[word].Insert(src.Name)
 			}
 		}

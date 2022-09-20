@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -32,8 +33,22 @@ var stringSources = []inverted_index.StringSource{{
 }}
 
 func run() error {
+	var args []string
+	if len(os.Args) == 0 {
+		args = append(args, "1", ".")
+	} else if len(os.Args) == 1 {
+		args = append(args, ".")
+	}
 
-	dirEntries, err := os.ReadDir("data/")
+	args = os.Args[1:]
+	num := args[0]
+	n, err := strconv.Atoi(num)
+	if err != nil {
+		return err
+	}
+
+	dir := args[1]
+	dirEntries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
 	}
@@ -47,15 +62,10 @@ func run() error {
 
 	var (
 		e error
-		n int
 	)
 
-	fmt.Printf("enter num of workers: ")
-	if _, err := fmt.Scanf("%d\n", &n); err != nil {
-		return err
-	}
 	t := utils.EstimateExecutionTime(func() {
-		if err := invIndex.Build(1, fileSources); err != nil {
+		if err := invIndex.Build(n, fileSources); err != nil {
 			e = err
 		}
 	})
