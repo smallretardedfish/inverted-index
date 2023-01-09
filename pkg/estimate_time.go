@@ -1,9 +1,13 @@
-package pkg
+package utils
 
 import "time"
 
-func EstimateExecutionTime(f func()) time.Duration {
+func EstimateExecutionTime(f func()) (t time.Duration) {
 	start := time.Now()
+	defer func() {
+		t = time.Since(start)
+	}()
+
 	f()
-	return time.Since(start)
+	return t
 }
