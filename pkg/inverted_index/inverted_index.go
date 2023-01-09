@@ -2,7 +2,8 @@ package inverted_index
 
 import (
 	"bufio"
-	"github.com/smallretardedfish/inverted-index/pkg/hash_set"
+	"fmt"
+	set "github.com/smallretardedfish/inverted-index/pkg/hash_set"
 	"log"
 	"os"
 	"strings"
@@ -17,7 +18,7 @@ type InvertedIndex interface {
 type MapInvertedIndex struct {
 	source IndexBuildSourceType
 	mu     *sync.Mutex
-	dict   map[string]hash_set.HashSet[string]
+	dict   map[string]set.HashSet[string]
 }
 
 type pair struct {
@@ -31,11 +32,6 @@ func (ii *MapInvertedIndex) Build(workersCount int, sources any) error {
 		filenames := sources.([]string)
 		jobsCh := make(chan string, len(filenames))
 
-		//chans := make([]chan pair, 0, workersCount)
-		res := make(chan pair)
-		wg := sync.WaitGroup{}
-		wg.Add(workersCount)
-
 		go func() { // feeling jobs channel with filenames
 			for _, filename := range filenames {
 				jobsCh <- filename
@@ -43,46 +39,24 @@ func (ii *MapInvertedIndex) Build(workersCount int, sources any) error {
 			close(jobsCh)
 		}()
 
-		go func() {
-			for p := range res { // collecting the result to hashmap
-				if _, ok := ii.dict[p.word]; !ok {
-					ii.dict[p.word] = make(hash_set.HashSet[string])
-				}
-				ii.dict[p.word].Insert(p.filename)
-			}
-		}()
-
-		for i := 0; i < workersCount; i++ { // worker pool
-			//pairCh := make(chan pair)     // every worker writes in this channel
-			//chans = append(chans, pairCh) // TODO check alternatives of slice append here
-			go func(id int) {
-				defer wg.Done()
-				for filename := range jobsCh { // job is  filename of file to process
-					f, err := os.Open(filename)
-					if err != nil {
-						log.Println(err)
-						return
-					}
-
-					scanner := bufio.NewScanner(f)
-					scanner.Split(bufio.ScanWords)
-
-					for scanner.Scan() {
-						word := scanner.Text()
-
-						res <- pair{
-							word:     word,
-							filename: f.Name(),
-						}
-					}
-				}
-				//	log.Printf("worker %d done.\n", id+1)
-			}(i)
-		}
-		wg.Wait()
-		close(res)
+		//chans := make([]chan pair, workersCount)
+		//for i := range chans {
+		//	chans[i] = make(chan pair)
+		//}
 
 		//res := utils.MergeChannels(chans...)
+		res := make(chan pair)
+		go func() {
+			wg := sync.WaitGroup{}
+			for i := 0; i < workersCount; i++ { // worker pool
+				wg.Add(1)
+				go scanWords(&wg, jobsCh, res)
+			}
+			wg.Wait()
+			close(res)
+		}()
+
+		ii.writeResult(res)
 
 	case StringSourceType:
 		stringSources := sources.([]StringSource)
@@ -90,21 +64,61 @@ func (ii *MapInvertedIndex) Build(workersCount int, sources any) error {
 			words := strings.Split(src.Text, " ")
 			for _, word := range words {
 				if _, ok := ii.dict[word]; !ok {
-					ii.dict[word] = make(hash_set.HashSet[string])
+					ii.dict[word] = make(set.HashSet[string])
 				}
 				ii.dict[word].Insert(src.Name)
 			}
 		}
 	}
 
+	workersStr := fmt.Sprintf("%d worker", workersCount)
+	if workersCount > 1 {
+		workersStr += "s"
+	}
+	log.Printf("inverted index was built by %s", workersStr)
 	return nil
 }
 
-func (ii *MapInvertedIndex) Search(word string) []string {
-	set := ii.dict[word]
-	res := make([]string, 0, set.Size())
+func (ii *MapInvertedIndex) writeResult(res <-chan pair) {
+	for p := range res { // collecting the result to hashmap
+		if _, ok := ii.dict[p.word]; !ok {
+			ii.dict[p.word] = make(set.HashSet[string])
+		}
+		ii.dict[p.word].Insert(p.filename)
+	}
+}
 
-	for source := range set {
+func scanWords(wg *sync.WaitGroup, jobsCh <-chan string, ch chan<- pair) {
+	defer wg.Done()
+	for filename := range jobsCh { // job is  filename of file to process
+		f, err := os.Open(filename)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		scanner := bufio.NewScanner(f)
+		scanner.Split(bufio.ScanWords)
+
+		for scanner.Scan() {
+			// TODO: check this
+			word := strings.Trim(scanner.Text(), ".,/:';!@#$%&*()`~<>[]{}\n\r")
+			ch <- pair{
+				word:     word,
+				filename: f.Name(),
+			}
+		}
+		if err := f.Close(); err != nil {
+			log.Println(err)
+		}
+	}
+}
+
+func (ii *MapInvertedIndex) Search(word string) []string {
+	s := ii.dict[word]
+	res := make([]string, 0, s.Size())
+
+	for source := range s {
 		res = append(res, source)
 	}
 
@@ -115,6 +129,6 @@ func NewMapInvertedIndex(source IndexBuildSourceType) *MapInvertedIndex {
 	return &MapInvertedIndex{
 		source: source,
 		mu:     &sync.Mutex{},
-		dict:   make(map[string]hash_set.HashSet[string]),
+		dict:   make(map[string]set.HashSet[string]),
 	}
 }

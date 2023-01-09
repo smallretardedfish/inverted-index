@@ -12,52 +12,35 @@ import (
 	"strings"
 )
 
-const (
-	FirstText = `In computer science, an inverted index (also referred to as a postings list, postings file,
-or inverted file) is a database index storing a mapping from content, such as words or numbers,
-to its locations in a table, or in a document or a set of documents
-(named in contrast to a forward index, which maps from documents to content).
-The purpose of an inverted index is to allow fast full-text searches,
-at a cost of increased processing when a document is added to the database.
-The inverted file may be the database file itself, rather than its index. 
-It is the most popular data structure used in document retrieval systems`
-	SecondText = "THIS IS computer science inverted index"
-)
-
-var stringSources = []inverted_index.StringSource{{
-	Name: "First",
-	Text: FirstText,
-}, {
-	Name: "Second",
-	Text: SecondText,
-}}
-
 func run() error {
-	var args []string
-	if len(os.Args) == 0 {
+	args := make([]string, 2)
+	copy(args, os.Args[1:])
+
+	if len(args) == 0 {
+		log.Println("no args given")
 		args = append(args, "1", ".")
-	} else if len(os.Args) == 1 {
+	} else if len(args) == 1 {
 		args = append(args, ".")
 	}
 
-	args = os.Args[1:]
 	num := args[0]
 	n, err := strconv.Atoi(num)
 	if err != nil {
-		return err
+		return fmt.Errorf("number of workers must be integer: %w", err)
 	}
 
 	dir := args[1]
 	dirEntries, err := os.ReadDir(dir)
 	if err != nil {
-		return err
+		return fmt.Errorf("can't read from given dir: %s, error: %w", dir, err)
 	}
 
 	var fileSources []string
 	for _, entry := range dirEntries {
-		fileSources = append(fileSources, filepath.Join("data", entry.Name()))
+		fileSources = append(fileSources, filepath.Join(dir, entry.Name()))
 	}
 
+	fmt.Printf("number of workers:%d\ndirectory with files to be processed:%s\n", n, dir)
 	invIndex := inverted_index.NewMapInvertedIndex(inverted_index.FileSourceType)
 
 	var (
@@ -80,7 +63,7 @@ func run() error {
 	for scanner.Scan() {
 		word := scanner.Text()
 		res := invIndex.Search(word)
-		fmt.Printf("word: %s - sources: %s\n>> ", word, strings.Join(res, ","))
+		fmt.Printf("word: '%s' \n sources: %s\n>> ", word, strings.Join(res, ","))
 	}
 
 	return nil
