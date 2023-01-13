@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	set "github.com/smallretardedfish/inverted-index/pkg/hash_set"
+	"golang.org/x/exp/maps"
 	"log"
 	"os"
 	"strings"
@@ -17,7 +18,7 @@ type InvertedIndex interface {
 
 type MapInvertedIndex struct {
 	source IndexBuildSourceType
-	mu     *sync.Mutex
+	mu     sync.Mutex
 	dict   map[string]set.HashSet[string]
 }
 
@@ -39,12 +40,6 @@ func (ii *MapInvertedIndex) Build(workersCount int, sources any) error {
 			close(jobsCh)
 		}()
 
-		//chans := make([]chan pair, workersCount)
-		//for i := range chans {
-		//	chans[i] = make(chan pair)
-		//}
-
-		//res := utils.MergeChannels(chans...)
 		res := make(chan pair)
 		go func() {
 			wg := sync.WaitGroup{}
@@ -115,20 +110,12 @@ func scanWords(wg *sync.WaitGroup, jobsCh <-chan string, ch chan<- pair) {
 }
 
 func (ii *MapInvertedIndex) Search(word string) []string {
-	s := ii.dict[word]
-	res := make([]string, 0, s.Size())
-
-	for source := range s {
-		res = append(res, source)
-	}
-
-	return res
+	return maps.Keys(ii.dict[word])
 }
 
 func NewMapInvertedIndex(source IndexBuildSourceType) *MapInvertedIndex {
 	return &MapInvertedIndex{
 		source: source,
-		mu:     &sync.Mutex{},
 		dict:   make(map[string]set.HashSet[string]),
 	}
 }
